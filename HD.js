@@ -59,27 +59,38 @@ class GameClient {
     }
 
     handleData(rawData) {
-        this.buffer  += rawData.toString();
+        this.buffer += rawData.toString();
 
-        // 处理完整JSON消息（假设服务器用换行分隔）
         while (true) {
-            const endIndex = this.buffer.indexOf(',\n');
+            const endIndex = this.buffer.indexOf('\n');
             if (endIndex === -1) break;
 
-            const message = this.buffer.slice(0,  endIndex);
-            this.buffer  = this.buffer.slice(endIndex  + 1);
+            let message = this.buffer.slice(0, endIndex);
+            this.buffer = this.buffer.slice(endIndex + 1);
 
+            // 修复 ver 字段格式（临时兼容）
+            message = message.replace(/"ver":\s*([0-9.]+)/g, '"ver": "$1"');
+            let messages = JSON.parse(message);
             try {
-                this.processMessage(JSON.parse(message));
+                if(messages.auth){
+                    console.log('[AUTH] 76 line Received token:', messages.token);
+                    connectionToken = messages.token;
+
+                }
+                else if(messages.status) {
+                    this.handleServerStatus(messages);
+                }else {
+                    console.log('[DEBUG]  81 line Received:', messages);
+                }
             } catch (e) {
-                console.error('[ERROR]  Invalid JSON:', message);
+                console.error('[ERROR] 修复后仍然无效的 JSON:', message);
             }
         }
     }
 
     /* 消息路由 */
     processMessage(msg) {
-        console.log('[DEBUG]  Received:', msg);
+        console.log('[DEBUG]  Received:', msg,msg.status);
 
         switch (msg.opt)  {
             case 0:  // 服务器状态
@@ -102,6 +113,7 @@ class GameClient {
             case 0:
                 console.log('[STATUS]  Server ready');
                 if (!connectionToken) this.requestToken();
+                console.log('connection OK, try to get token')
                 break;
             case 1:
                 console.error('[ERROR]  Version mismatch');
@@ -137,6 +149,7 @@ class GameClient {
             opt: 5,
             sid: this.config.sid
         });
+        console.log('[AUTH]  Requesting token....');
     }
 
     sendMessage(data) {
@@ -145,6 +158,7 @@ class GameClient {
             return;
         }
         this.socket.write(JSON.stringify(data)  + '\n');
+        console.log('[DEBUG]  Sent:', data);
     }
 
     /* 功能封装 */
@@ -184,6 +198,7 @@ class GameClient {
     shutdown() {
         this.socket.destroy();
     }
+
 }
 
 /* 启动客户端 */
@@ -191,6 +206,8 @@ try {
     const config = initConfig();
     const client = new GameClient(config);
     client.connect();
+
+
 
     // 处理进程退出
     process.on('SIGINT',  () => {
